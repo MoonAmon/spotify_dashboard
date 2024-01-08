@@ -35,8 +35,12 @@ class SpotifyCredentials:
 
 class SpotifyRequests(SpotifyCredentials):
 
-    URL = dict(track='https://api.spotify.com/v1/tracks/', album='https://api.spotify.com/v1/albums/',
-               artist='https://api.spotify.com/v1/artists/', tracks='https://api.spotify.com/v1/tracks?ids=', me='https://api.spotify.com/v1/me')
+    URL = {'track': 'https://api.spotify.com/v1/tracks/',
+           'album': 'https://api.spotify.com/v1/albums/',
+           'artist': 'https://api.spotify.com/v1/artists/',
+           'tracks': 'https://api.spotify.com/v1/tracks?ids=',
+           'me': 'https://api.spotify.com/v1/me',
+           'audio_features': 'https://api.spotify.com/v1/audio-features?ids='}
 
     def __init__(self, client_id, client_secret):
         super().__init__(client_id, client_secret)
@@ -52,24 +56,50 @@ class SpotifyRequests(SpotifyCredentials):
         return response.json()
 
     def get_track(self, uri):
-        if isinstance(uri, str):
-            url = self.URL['track'] + uri
-            response = requests.get(url, headers=self.headers)
-            return response.json()
-        elif isinstance(uri, list):
-            concatenated_uris = []
-            for i in range(0, len(uri), 50):
-                sliced_uris = uri[i:i+50]
-                concatenated_uris.append(','.join(sliced_uris))
-            responses = []
-            for uri_group in tqdm(concatenated_uris):
-                response = requests.get(self.URL['tracks'] + uri_group, headers=self.headers)
-                responses.append(response)
-        return [res.json() for res in responses]
+        url = self.URL['track'] + uri
+        response = requests.get(url, headers=self.headers)
+        return response.json()
 
     def get_info(self):
-        response = requests.get(self.URL['me'], headers=self.headers)
-        return response
+        url = self.URL['me']
+        response = requests.get(url, headers=self.headers)
+        return response.json()
+
+    def get_several_tracks(self, uri_group, retries=5, backoff_factor=0.3):
+        response_list = []
+        for n in range(retries):
+            try:
+                for i in range(0, len(uri_group), 50):
+                    uri_string = ','.join(uri_group[i:i+50])
+                    url = self.URL['tracks'] + uri_string
+                    response = requests.get(url, headers=self.headers)
+                    if response.status_code == 200:
+                        response_list.extend(response.json()['tracks'])
+                return response_list
+            except requests.exceptions.RequestException as e:
+                if n == retries - 1:
+                    raise
+                else:
+                    print(f"Request failed, retrying in {backoff_factor * (2 ** n)} seconds...")
+                    time.sleep(backoff_factor * (2 ** n))
+
+    def get_several_tracks_features(self, uri_group, retries=5, backoff_factor=0.3):
+        response_list = []
+        for n in range(retries):
+            try:
+                for i in range(0, len(uri_group), 100):
+                    uri_string = ','.join(uri_group[i:i + 100])
+                    url = self.URL['audio_features'] + uri_string
+                    response = requests.get(url, headers=self.headers)
+                    if response.status_code == 200:
+                        response_list.extend(response.json()['audio_features'])
+                return response_list
+            except requests.exceptions.RequestException as e:
+                if n == retries - 1:
+                    raise
+                else:
+                    print(f"Request failed, retrying in {backoff_factor * (2 ** n)} seconds...")
+                    time.sleep(backoff_factor * (2 ** n))
 
 
 def get_uri_ids(dataframe_main, option):
